@@ -36,6 +36,8 @@ from oxbridge.graphTools.autoGraphBuilders import parametricGraphBuilder as para
 import oxbridge.graphTools.parametric as pm
 
 import math
+#import numpy as np
+import networkx as nx
 
 
 
@@ -274,18 +276,253 @@ def testUnitPlane(outfile):
     
     
 # ---------------
+def testNetworkX(infile):
+
+    # compute a histogram showing the frequency of the (intermediate) constituents
+    # in the shortest paths between the IDs of srcids and the IDs of 
+    # trgids 
+    # srcids: list of source ids
+    # trgids: list of target ids
+    # namedict: a dictionary whose keys are ids and values are the region names
+    #           associated to that ID
+    # Gx: Network x graph.  The IDs of srcid, trgid must be within the range 
+    #   of the node IDs of this graph. (e.g. correspond to value node IDs)
+    def pathHistogram(srcids, trgids, nodestolabels, Gx):
+        
+        # These will be the bin names
+        binids = set({})
+        fullresults = []
+
+        for srcid in srcids:
+            for trgid in trgids:
+                path = nx.shortest_path(Gx, source=srcid, target=trgid)
+                
+                addtobins = None
+                bDirect = False
+                
+                # the shortest path is a direct connection
+                plen = len(path)
+                if plen == 2:
+                    addtobins = {'Direct Shortest Path'}
+                    bDirect = True
+                else:
+                    # remove the first and last elemenet.  These are 
+                    # the source and target and so we don't want them 
+                    # to obscure the histogram results 
+                    path.pop(plen-1)
+                    path.pop(0)
+                    addtobins = {nodestolabels[p] for p in path}
+                
+                binids.update(addtobins)
+                
+                if bDirect:
+                    fullresults.append('Direct Shortest Path')
+                else:
+                    for p in path:
+                        fullresults.append(nodestolabels[p])
+        
+        npbins = list(binids)
+        npbins.sort()
+        
+        # we make a histogram by hand out of a dictionary which can 
+        # be plotted using any auxilliary package.  
+        myhist = {label: 0 for label in npbins}
+        
+        for f in fullresults:
+            myhist[f] = myhist[f] + 1
+        
+        #retv = np.histogram(fullresults, bins=npbins)
+        return myhist
+    # -------------------------------------------------
+    
+    # get a list of the names of the neighbors of the node with id `nodeid'
+    def getNeighborList(nodeids, nodestolabels, Gx):
+        allneighbors = []
+        
+        for nodeid in nodeids:
+            neighids = Gx.neighbors(nodeid)    
+            neighbortags = [nodestolabels[nid] for nid in neighids]
+            allneighbors.append(neighbortags)
+        
+        # remove duplicates that may be in the list
+        allneighbors = list(dict.fromkeys(allneighbors))
+        
+        return allneighbors
+    
+    # returns the node IDs and weights of the top `nneigh' neighbors
+    def getStronglyConnected(nodeid, G, nneigh=10):
+        
+        # get the degree of the node for safe bounds checking
+        ndeg = G.degree[nodeid]
+        
+        if nneigh > ndeg:
+            print(f"{nneigh} strongest connections requested by node {nodeid} has degree {ndeg}. using nneigh={ndeg}")
+            nneigh = ndeg
+        
+        resv = sorted(G[nodeid].items(), key=lambda e: e[1]["weight"], reverse=True)[:nneigh]
+        
+        resd = {}
+        
+        # the `sorted' code above returns a list of tuples.  The first entry 
+        # is a node ID of a neighbor and the second entry is a dictionary that
+        # contains the edge information for the edge connecting `nodeid' to that 
+        # neighbor.  We make an easily readable dictionary out of this by extracting
+        # the neighbor node id and the value of the connecting edge 'weight' attribute
+        for r in resv:
+            resd[int(r[0])] = float(r[1]['weight'])
+        
+        return resd
+    
+    # == End internal functions ==
+    # ============================
+
+    masterGraph = oxGraphML()
+    masterGraph.setInputFile(infile)
+    masterGraph.readAll()
+    
+    # get the inner graph of the reader object
+    G = masterGraph.getInnerGraph()
+    
+    # request a networkx version of the inner graph
+    xG = G.getNetworkXGraph()    
+    
+    #------------------------------------------------
+    
+    associationCortexLeft = ['cortical.rostralmiddlefrontal.left',\
+                                'cortical.caudalmiddlefrontal.left',\
+                                'cortical.inferiorparietal.left',\
+                                'cortical.superiortemporal.left']
+    
+    associationCortexRight = ['cortical.rostralmiddlefrontal.right',\
+                                'cortical.caudalmiddlefrontal.right',\
+                                'cortical.inferiorparietal.right',\
+                                'cortical.superiortemporal.right']
+    
+    associationCortexAll = ['cortical.rostralmiddlefrontal.left',\
+                                'cortical.rostralmiddlefrontal.right',\
+                                'cortical.caudalmiddlefrontal.left',\
+                                'cortical.caudalmiddlefrontal.right',\
+                                'cortical.inferiorparietal.left',\
+                                'cortical.inferiorparietal.right',\
+                                'cortical.superiortemporal.left',\
+                                'cortical.superiortemporal.right']
+
+    #------------------------------------------------
+    hippocampalLeft = 'subcortical.Left-Hippocampus.left'
+    hippocampalRight = 'subcortical.Right-Hippocampus.right'
+    hippocampalAll = ['subcortical.Right-Hippocampus.right', 'subcortical.Left-Hippocampus.left']
+    #------------------------------------------------
+    
+    srcLeft = 'cortical.entorhinal.left'
+    srcRight= 'cortical.entorhinal.right'
+    
+    #-----------------------------------------------
+    
+    # get the node names
+    ndict = xG.nodes(data="name")
+    namestonodes = {}
+    nodestonames = {}
+    
+    # reverse the dictionary so that we can query by name
+    # (multiple node IDs can be associated to each region name)
+    for ntup in ndict:
+        ndid = ntup[0]
+        ndnm = ntup[1]
+
+        nodestonames[ndid] = ndnm
+        
+        if ndnm in namestonodes:
+            namestonodes[ndnm].append(ndid)
+        else:
+            namestonodes[ndnm] = [ndid]
+    
+    # Now we are going to make a histogram that will record the regional 
+    # participants in the shortest paths between the source nodes and the 
+    # various target nodes 
+
+    # probe the connections of the hippocampus
+    hlid = namestonodes[hippocampalLeft][0]
+    hrid = namestonodes[hippocampalRight][0]
+    
+    # get the top 10 connections for each of these
+    tophl = getStronglyConnected(hlid, xG, nneigh=15)
+    tophr = getStronglyConnected(hrid, xG, nneigh=15)
+    
+    # now we extract the names of the nodes in the top most strongly connected
+    # hippocampal neighbors
+    hlregions = []
+    hrregions = []
+    
+    for n in tophl:
+        hlregions.append(nodestonames[n])
+    
+    for n in tophr:
+        hrregions.append(nodestonames[n])
+        
+
+    # check to see if any of these regions are in the association cortex ROI
+    shared = []
+    for a in associationCortexAll:
+        if a in hlregions or a in hrregions:
+            shared.append(a)
+    
+    print(shared)
 
 
+    # Lets do the left source nodes first
+    #srcNodesLeft = namestonodes[srcLeft]
+    #trgNodesLeft = namestonodes[hippocampalRight]
+    #hist = pathHistogram(srcNodesLeft, trgNodesLeft, nodestonames, xG)
+    
+    
+    for a in associationCortexLeft:
+        nids = namestonodes[a]
+        for n in nids:
+            topconn = getStronglyConnected(n, xG, nneigh=15)
+            topreg = []
+            
+            for r in topconn:
+                topreg.append(nodestonames[r])
+    
+            print(topreg)
+    
+    
+    
+    # find the neighbors of the left and right hippocampus
+    hipleftid = namestonodes[hippocampalLeft]
+    hiprightid= namestonodes[hippocampalRight]
+    
+    HPNLeft = getNeighborList(hipleftid, nodestonames, xG)
+    HPNRight = getNeighborList(hiprightid, nodestonames, xG)
+    
+    
 
 
 # entry point of the script 
 if __name__ == "__main__": 
+    # ---------------------------------------
+    # Test graph input / output
+    # ---------------------------------------
     #testgraphReadAndWrite("/home/zcxp/src/oxford/oxbdev/master-std500.graphml","/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
+
+    # ---------------------------------------
+    # Test automated graph creation
+    # ---------------------------------------
     #testTwoNodeGraph("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testThreeNodeAutoBuilder("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")    
     #testParametricLine("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testTwoParametricLines("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testParametricCircle("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
-    testParametricCylinder("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
+    #testParametricCylinder("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testUnitPlane("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
+    
+    
+    # ---------------------------------------
+    # Test Network-X related functionality
+    # ---------------------------------------
+    testNetworkX("/home/zcxp/src/oxford/oxbdev/master-std500.graphml")
+    
+    
+    
+    
     

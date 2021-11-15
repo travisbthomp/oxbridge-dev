@@ -27,6 +27,7 @@
 #
 # ============================================================================
 
+import networkx as nx
 
 # Class representation of a node
 class oxbridgeNode:
@@ -50,6 +51,8 @@ class oxbridgeNode:
         
         self.hemiGroup = ""
         self.hemiGroupNum = ""
+        
+        self.pryonName = ""
 
     def __setDerivedData(self, delim='_'):
         self.sepdelim=delim
@@ -76,6 +79,8 @@ class oxbridgeNode:
             self.fsGroup = self.fsname
             self.fsGroupNumber = ""
             
+         
+        self.pryonName = f"{self.region}.{self.fsGroup}.{self.hemisphere}"
         
     def setCoords(self, xin, yin, zin):
         self.x = xin
@@ -113,12 +118,22 @@ class oxbridgeNode:
     def getGroupName(self):
         return self.hemiGroup
     
+    def getNodeNumberInGroup(self):
+        retv = 1
+        
+        if self.hemiGroupNum != "":
+            retv = int(self.hemiGroupNum)
+        
+        return retv
+    
     def getBilaterialGroupName(self):
         return self.fsGroup
     
     def getCoords(self):
         return (self.x, self.y, self.z)
     
+    def getPryonName(self):
+        return self.pryonName
     
 # Class representation of an edge
 class oxbridgeEdge:
@@ -295,9 +310,67 @@ class oxbridgeGraph:
             print("srctag should be a tuple of integer node IDs, e.g. (1,2)")
         
     
-    
+    # Return a networkx graph object of this graph
+    # [Optional]
+    #   Specify the weights as
+    #   'N', 'Ballistic' or 'Diffusive'
+    # These options determine the edge weights as nij/(lij)^K where
+    # 'N': K=0
+    # 'Ballistic': K=1
+    # 'Diffusive': K=2
+    def getNetworkXGraph(self, weights='Diffusive'):
+        xG = None
+        
+        weightOptions = {'N': 0, 'Ballistic': 1, 'Diffusive': 2}
+        
+        if len(self.nodes) == 0 or len(self.edges) == 0:
+            print("** Cannot build a NetworkX graph.  This object is missing nodes or edges.")
+            print("** Please call `addNode' or `addEdge' to add the missing requirements")
+            return xG
                 
+        if weights not in weightOptions:
+            print(f"** Invalid option weights={weights}.  Please use one of: \'N\', \'Ballistic\', \'Diffusive\'")
+            return xG
+    
+        K = weightOptions[weights]
+    
+        # start graph construction
+        xG = nx.Graph()
         
-        
+        for nnum in self.nodes:
+            n = self.nodes[nnum]
+            nid = n.getID()
+            ncoor = n.getCoords()
+            ntag  = n.getPryonName()
+            nodeInGroup = n.getNodeNumberInGroup()
+            
+            # add the node to the graph
+            xG.add_node(nid, name=ntag, numInGroup=nodeInGroup, xcoor=ncoor[0], ycoor=ncoor[1], zcoor=ncoor[2])
+            
+            
+        for en in self.edges:
+            e = self.edges[en]
+            
+            # this returns the (source id, target id) pair
+            eid = e.getID()
+            ewgts = e.getEdgeWeights()
+            nij = ewgts[0]
+            lij = ewgts[1]
+            
+            # compute the edge weight
+            ew = nij / (lij**K)
+    
+            xG.add_edge(eid[0], eid[1], weight=ew, n=nij, l=lij, typ=weights)
+            
+        return xG
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     
