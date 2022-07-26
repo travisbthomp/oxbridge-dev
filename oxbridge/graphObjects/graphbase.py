@@ -234,6 +234,14 @@ class oxbridgeGraph:
             self.nodeRegions[rgn] = [nid]
         # ----
         
+
+    def getNodeIDs(self):
+        return list(self.nodes.keys())
+    
+    def getEdgeIDs(self):
+        return list(self.edges.keys())
+
+
     def checkEdgeExists(self, eid):
         res = (eid in self.edges)
         return res
@@ -257,16 +265,27 @@ class oxbridgeGraph:
         
         if self.checkEdgeExists(eid):
             eV = self.edges[eid]
-    
+        else:
+            # Its possible that the edge exists but in 
+            # a reversed order.  Since our graph is 
+            # undirected, lets check for that 
+            erev = tuple(reversed(eid))
+            if self.checkEdgeExists(erev):
+                eV = self.edges[erev]
+            
         return eV
 
+    def getNodeNeighbors(self, nid):
+        nB = None
+        
+        if self.checkNodeExists(nid):
+            nB = self.nodeNeighbors[nid]
+        
+        return nB
 
+    def getAllNodeNeighborhoods(self):
+        return self.nodeNeighbors
     
-    def getNodeIDs(self):
-        return self.nodes.keys()
-    
-    def getEdgeIDs(self):
-        return self.edges.keys()
         
     # add an edge 
     #   srctrg: a tuple with two integers indicating source and 

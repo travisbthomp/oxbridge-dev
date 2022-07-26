@@ -36,8 +36,11 @@ from oxbridge.graphTools.autoGraphBuilders import parametricGraphBuilder as para
 import oxbridge.graphTools.parametric as pm
 
 import math
-#import numpy as np
+import numpy as np
 import networkx as nx
+
+import matplotlib.pyplot as plt
+
 
 
 
@@ -474,28 +477,460 @@ def testNetworkX(infile):
     #trgNodesLeft = namestonodes[hippocampalRight]
     #hist = pathHistogram(srcNodesLeft, trgNodesLeft, nodestonames, xG)
     
+    # extract the leading order entries of the list
+    def leadingorder(topconn):
+        kys = list(topconn.keys())
+        topval = topconn[kys[0]]
+        
+        leading = {}
+        
+        for k in kys:
+            if (topval / topconn[k]) <= 10:
+                leading[k] = topconn[k]
+        
+        return leading
     
+    def printAssocHistCollection(histograms):
+         # print ascii versions of the histogram
+         for header in associationHistograms:
+             print(f"= = = = = = = = = = {header} = = = = = = = = = =")
+             print("")
+             
+             hist = histograms[header]
+             
+             # invert the histogram 
+             inv_hist = {v: k for k, v in hist.items()}
+             sortkeys = list(inv_hist.keys())
+             sortkeys.sort()
+             sortkeys.reverse()
+             for val in sortkeys:
+                 print(f"{inv_hist[val]}: {val}")
+             print("================================================")
+             print("")
+    
+    
+    associationHistograms = {}
     for a in associationCortexLeft:
+        associationHistograms[a] = {}
+        
         nids = namestonodes[a]
         for n in nids:
             topconn = getStronglyConnected(n, xG, nneigh=15)
-            topreg = []
             
-            for r in topconn:
-                topreg.append(nodestonames[r])
+            leading = leadingorder(topconn)
+            leadreg = []
+            
+            for r in leading:
+                leadreg.append(nodestonames[r])
     
-            print(topreg)
+            # remove duplicates
+            leadreg = list(dict.fromkeys(leadreg))
     
+            for reg in leadreg:
+                if reg in associationHistograms[a]:
+                    associationHistograms[a][reg] += 1
+                else:
+                    associationHistograms[a][reg] = 1
     
+    print("<><><><><><><><><> Histogram for Association Cortex Neighbor Connectivity <><><><><><><><><>")
+    printAssocHistCollection(associationHistograms)
+    # print ascii versions of the histogram
+    #for header in associationHistograms:
+    #    print(f"= = = = = = = = = = {header} = = = = = = = = = =")
+    #    print("")
+        
+    #    hist = associationHistograms[header]
+        
+        # invert the histogram 
+    #    inv_hist = {v: k for k, v in hist.items()}
+    #    sortkeys = list(inv_hist.keys())
+    #    sortkeys.sort()
+    #    sortkeys.reverse()
+        
+    #    for val in sortkeys:
+    #        print(f"{inv_hist[val]}: {val}")
+        #for name in hist:
+        #    print(f"{name}: " + '+'*hist[name])
+        #    print("")
+    #    print("================================================")
+    #    print("")
+    print("<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>")
+    print("")
+    # Now we want to investigate the shortest paths between the 
+    # entorhinal cortex and the nodes of the left association cortices
+    leftAssociationShortestPathHistograms = {}
+    srcnids = namestonodes[srcLeft]
+    
+    for a in associationCortexLeft:
+        trgnids = namestonodes[a]
+        leftAssociationShortestPathHistograms[a] = pathHistogram(srcnids, trgnids, nodestonames, xG)
+    
+  
+    print("<><><><><><><><><> Histogram for EC-->Association Cortex Shortest Paths <><><><><><><><><>")
+    printAssocHistCollection(leftAssociationShortestPathHistograms)
+    print("<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>")
+    i=1
     
     # find the neighbors of the left and right hippocampus
-    hipleftid = namestonodes[hippocampalLeft]
-    hiprightid= namestonodes[hippocampalRight]
+    #hipleftid = namestonodes[hippocampalLeft]
+    #hiprightid= namestonodes[hippocampalRight]
     
-    HPNLeft = getNeighborList(hipleftid, nodestonames, xG)
-    HPNRight = getNeighborList(hiprightid, nodestonames, xG)
+    #HPNLeft = getNeighborList(hipleftid, nodestonames, xG)
+    #HPNRight = getNeighborList(hiprightid, nodestonames, xG)
     
     
+
+def outputGraphLaplacianDiagonal(infile):
+    # 0: length-free weights
+    # 1: ballistic weights
+    # 2: diffusive weights
+    weightLengthPower = 2
+
+    normalize = True
+
+    masterGraph = oxGraphML()
+    masterGraph.setInputFile(infile)
+    masterGraph.readAll()
+    
+    G = masterGraph.getInnerGraph()
+
+    # get the dictionary of neighborhoods for the graph.  This dictionary 
+    # has keys equal to the node IDs and a value of the list which contains 
+    # the node IDs of that node's neighbors
+    ngbds = G.getAllNodeNeighborhoods()
+    
+    # sort the node IDs so that we can print an array that can 
+    # be copied into C++
+    nodeids = list(ngbds.keys())
+    nodeids.sort()
+    
+    vals = []
+
+    maxval = 0.0
+    maxid = -1
+    maxname = ""
+
+    nodeclear = {}
+    nodedvals = {}
+    for n in nodeids:
+        thisNgbd = ngbds[n]
+        
+        agg = 0.0
+        for nbid in thisNgbd:
+            # get the edge corresponding to n and its neighbor
+            eid = (n, nbid)
+            e = G.getEdge(eid)
+
+            wij = e.getEdgeWeights()
+            nij = wij[0]
+            lij = wij[1]
+            
+            addwgt = nij/(lij**weightLengthPower)
+            agg += addwgt
+        
+        vals.append(agg)
+        
+        if agg > maxval:
+            maxval = agg
+            maxid = n
+            maxname = G.getNode(n).getName()
+
+
+        nodenm = G.getNode(n).getGroupName()
+        
+        if agg in nodeclear:
+            nodeclear[agg].append(nodenm)
+        else:
+            nodeclear[agg] = [nodenm]
+
+        if nodenm in nodedvals:
+            nodedvals[nodenm].append(agg)
+        else:
+            nodedvals[nodenm] = [agg]
+
+    if normalize:
+        maxv = np.amax(vals)
+        vals = [v/maxv for v in vals]
+
+    ranges = vals.copy()
+    ranges.sort()
+    
+    
+    # create a histogram of the values
+    #plt.hist(vals, bins='auto')
+    
+    low = np.percentile(vals, 25)
+    med = np.percentile(vals, 50)
+    hgh = np.percentile(vals, 75)
+    
+
+    outstr=""
+    print(*vals, sep="\n")
+    outstr = f"initialVals = {str(vals)};"
+    print(outstr)
+   
+    
+   
+    
+# This function extracts a subgraph that contains a list of node IDs
+# 
+def extractSubgraph(G, nodelist=[], allEdges=False, quantile=0.75):
+    pass
+
+# This function takes as input a set of vertices and recursively builds a 
+# superset of vertices.  The additional vertices in the superset  are determined 
+# by taking an extension of the current set determined by adding those vertices 
+# which are `strongly connected' to those in the base set.  The notion of 
+# `strongly connected' is determined by taking those vertices whose edge weight 
+# nij lies in the range of the input quantile (e.g. top 95% of nij values, etc).
+#
+# note: G must be an oxbridgeGraph object.  e.g.
+#           masterGraph = oxGraphML()
+#           masterGraph.setInputFile(infile)
+#           masterGraph.readAll()
+#           G = masterGraph.getInnerGraph()
+#   
+# nodelist must be a non-empty list of nodes.  This list represents a startpoint point
+#   when newverts=[] and is used recursively thereafter to represent the new list.
+def splayWellConnectedVertices(G, nodelist, newverts=[], vlimit=15, depthlimit=3, quantile=0.95):
+    
+    #-------------------------------------
+    def splaynode(G, nid, quantile=0.75, matchHemi=True):
+        allngbd = G.getNodeNeighbors(nid)
+        ngbd = []
+        
+        if matchHemi == False:
+            ngbd = allngbd
+        else:
+            nidhemi = (G.getNode(nid)).getHemisphere()
+            for n in allngbd:
+                if (G.getNode(n)).getHemisphere() == nidhemi:
+                    ngbd.append(n)
+            if len(ngbd) == 0:
+                print(f"No nodes found in the same hemisphere of node {nid}")
+                return None, None
+        
+        nijs = []
+        lookup = {}
+        foundneighbors = []
+        
+        # loop over is node's neighbors and get the associated edges
+        for n in ngbd:
+            foundedge = False
+            edg = None
+            
+            if G.checkNodeExists(n) == False:
+                print(f"node {n} not found")
+                continue
+                     
+            if G.checkEdgeExists((nid,n)):
+                edg = G.getEdge((nid,n))
+                foundedge = True
+            elif G.checkEdgeExists((n, nid)):
+                edg = G.getEdge((n,nid))
+                foundedge = True
+        
+            if foundedge:
+                nij = (edg.getEdgeWeights())[0]
+                nijs.append(nij)
+                
+                lookup[nij] = (n, edg)
+            else:
+                print(f"Could not find edge ({nid},{n}) or vice versa")
+        
+        
+        npnij = np.array(nijs)
+        qcut = np.quantile(npnij, quantile)
+        
+        # build the final neighbor ID list
+        for k in list(lookup.keys()):
+            if k > qcut:
+                foundneighbors.append(lookup[k][0])
+        
+        return foundneighbors
+    # -------------------------------------------
+
+    if len(nodelist) == 0:
+        print(f"Cannot splay the current vertex set, the list of nodes is empty.")
+        return nodelist
+
+    if (depthlimit == -1):
+        print(f"Depth limit reached")
+        return nodelist
+    
+    if len(nodelist + newverts) > vlimit:
+        print(f"Node limit exceeded at depth {depthlimit}.  Returning the results of the last splay")
+        return nodelist    
+    
+    # create an extended node set
+    splayed = nodelist + newverts
+
+    # if this is the first run, all of the vertices are `new'
+    if len(newverts) == 0:
+        newverts = nodelist
+    
+    extendby = []
+    for v in newverts:
+        newngb = splaynode(G, v, quantile=quantile, matchHemi=True)
+        
+        # gather novel vertices
+        for s in newngb:
+            if ((s in nodelist) == False) and ((s in newverts) == False) and ((s in extendby) == False):
+                extendby.append(s)
+
+    # call recursively
+    return splayWellConnectedVertices(G, splayed, newverts=extendby, vlimit=vlimit, depthlimit=depthlimit-1, quantile=quantile)
+
+
+def extractSubgraphFromVertices(G, vertexIDs):
+    # the extracted graph
+    eG = Graph()
+
+    # first, we need to add all of the nodes to the graph
+    for vid in vertexIDs:
+        if G.checkNodeExists(vid) == False:
+            print(f"Node with ID {vid} does not exist in the graph G")
+            continue
+        
+        # add the node to the graph
+        eG.addNode(vid, G.getNode(vid))
+        
+        
+    # now we add the edges to the graph
+    for vid in vertexIDs:
+        for ng in vertexIDs:
+            # skip the self node
+            if ng == vid:
+                continue
+            
+            if (G.checkEdgeExists( (vid, ng) ) ):
+                eG.addEdge( (vid, ng), G.getEdge((vid, ng)) )
+            else:
+                continue
+                # no edge (vid, ng) exists in the graph.  (ng, vid) might 
+                # exist, but we will encounter this edge later.
+    return eG
+
+# This function extracts a well-connected subgraph that contains a given set of NodeIDs.  
+#   infile: an oxmbm-formatted graphml file that contains the node IDs specified in the `nodeids' input list
+#   primaryNodeids: a list of node ids (appearing in `infile') that act as the primary nodes for the subgraph extraction
+#   quantile: keep the nodes connection strengths are in the indicated quantile
+def extractWellConnectedSubgraph(infile, primaryNodeids=[], quantile=0.75):
+
+    #-------------------------------------
+    def getCutoffNeighborhood(G, nid, quantile=0.75, matchHemi=True):
+        allngbd = G.getNodeNeighbors(nid)
+        ngbd = []
+        
+        if matchHemi == False:
+            ngbd = allngbd
+        else:
+            nidhemi = (G.getNode(nid)).getHemisphere()
+            for n in allngbd:
+                if (G.getNode(n)).getHemisphere() == nidhemi:
+                    ngbd.append(n)
+            if len(ngbd) == 0:
+                print(f"No nodes found in the same hemisphere of node {nid}")
+                return None, None
+        
+        nijs = []
+        lookup = {}
+        
+        foundedges = []
+        foundneighbors = []
+        
+        # loop over is node's neighbors and get the associated edges
+        for n in ngbd:
+            foundedge = False
+            edg = None
+            
+            if G.checkNodeExists(n) == False:
+                print(f"node {n} not found")
+                continue
+            
+            
+            if G.checkEdgeExists((pn,n)):
+                edg = G.getEdge((pn,n))
+                foundedge = True
+            elif G.checkEdgeExists((n, pn)):
+                edg = G.getEdge((n,pn))
+                foundedge = True
+        
+            if foundedge:
+                nij = (edg.getEdgeWeights())[0]
+                nijs.append(nij)
+                
+                lookup[nij] = (n, edg)
+            else:
+                print(f"Could not find edge ({pn},{n}) or vice versa")
+        
+        
+        npnij = np.array(nijs)
+        qcut = np.quantile(npnij, quantile)
+        
+        # build the final neighbor ID list
+        for k in list(lookup.keys()):
+            if k > qcut:
+                #final.append( (lookup[k])[0])
+                foundneighbors.append(G.getNode( (lookup[k])[0] ))
+                foundedges.append( (lookup[k])[1] )
+        
+        return foundneighbors, foundedges
+
+    # -------------------------------------------
+    # this routine completes the constructed subgraph at the indicated quantile
+    # --> Fill me in: this function 
+    def completeSubgraph(G, MG, quantile):
+        return MG
+    
+    # -------------------------------------------
+
+
+    if len(primaryNodeids) == 0:
+        print("The list of primary node IDs must not be empty")
+        return
+
+    masterGraph = oxGraphML()
+    masterGraph.setInputFile(infile)
+    masterGraph.readAll()
+
+    G = masterGraph.getInnerGraph()
+    ngbds = G.getAllNodeNeighborhoods()
+
+
+    allnodes = []
+    alledges = []
+    
+    # create a new graph to start appending objects to
+    MG = Graph()
+    
+    for pn in primaryNodeids:
+        
+        if G.checkNodeExists(pn) == True:
+            
+            # add the primary node
+            if (MG.checkNodeExists(pn)) == False:
+                MG.addNode(pn, G.getNode(pn))
+            
+            nodes, edges = getCutoffNeighborhood(G, pn, quantile=quantile)
+            
+            for n in nodes:
+                nid = n.getID()
+                if (MG.checkNodeExists(nid)) == False:
+                    MG.addNode(nid, n)
+            
+            for e in edges:
+                eid = e.getID()
+                if (MG.checkEdgeExists(eid)) == False:
+                    MG.addEdge(eid, e)
+
+        else:
+            print(f"Node with id {pn} does not exist in the {infile}")
+    
+    
+    MGF = completeSubgraph(G, MG, quantile)
+    
+    return MGF
 
 
 # entry point of the script 
@@ -515,12 +950,56 @@ if __name__ == "__main__":
     #testParametricCircle("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testParametricCylinder("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
     #testUnitPlane("/home/zcxp/src/oxford/oxbdev/oxbridge.graphml")
+    #outputGraphLaplacianDiagonal("/home/zcxp/devops/oxb/master-std500.graphml")
     
+    
+    
+    # --------------------------
+    # Test the extraction of a well-connected subgraph from a master graph
+    # --------------------------
+    #extractWellConnectedSubgraph("/home/zcxp/devops/oxb/master-std33.graphml", primaryNodeids=[68, 71, 66, 70], quantile=0.5)
+    #extractWellConnectedSubgraph("/home/zcxp/devops/oxb/master-std33.graphml", primaryNodeids=[68, 73, 81, 71, 66, 70, 60, 64, 72], quantile=0.75)
+    #extractWellConnectedSubgraph("/home/zcxp/devops/oxb/master-std33.graphml", primaryNodeids=[68, 73, 81, 60, 72, 76, 71, 66, 70, 64, 75, 63, 65], quantile=0.75)
+    masterGraph = oxGraphML()
+    masterGraph.setInputFile("/home/zcxp/devops/oxb/master-std33.graphml")
+    masterGraph.readAll()
+
+    G = masterGraph.getInnerGraph()
+    
+    # initial vertex count (produced a quotient space that was too large)
+    #splayedVertices = splayWellConnectedVertices(G, nodelist=[68, 71, 66, 70], vlimit=19, depthlimit=10, quantile=0.97)
+    #splayedGraph = extractSubgraphFromVertices(G, splayedVertices)
+    
+    # smaller vertex counts (the resulting homotopy space size is here: https://oeis.org/A331554)
+    vlimit=17
+    splayedVertices = splayWellConnectedVertices(G, nodelist=[68, 71], vlimit=vlimit, depthlimit=10, quantile=0.97)
+    splayedGraph = extractSubgraphFromVertices(G, splayedVertices)
+    
+    print(f"Found final vertex set {splayedVertices} with length {len(splayedVertices)}")
+    
+    eids = splayedGraph.getEdgeIDs()
+    
+
+    print(f"Edges needed are at least {(vlimit-1)*(vlimit-2)/2 + 1}")
+    print(f"Complete graph has {vlimit*(vlimit-1)/2} vertices")
+    print(f"Splayed graph has {len(eids)} edges")
+    
+    subGraph = oxGraphML()
+    subGraph.setInnerGraph(splayedGraph)
+    
+    subGraph.setOutputFile("/home/zcxp/devops/oxb/adsubtype-graph-std33.graphml")
+    subGraph.writeAll()
+    
+    # write the graph laplacian.  set lengthpower=X for different types
+    #   X = 0: unweighted
+    #   X = 1: ballistic weights
+    #   X = 2: diffusive weights
+    subGraph.writeGraphLaplacianCSV(csvpath="/home/zcxp/devops/oxb/", lengthpower=2)
     
     # ---------------------------------------
     # Test Network-X related functionality
     # ---------------------------------------
-    testNetworkX("/home/zcxp/src/oxford/oxbdev/master-std500.graphml")
+    #testNetworkX("/home/zcxp/src/oxford/oxbdev/master-std500.graphml")
     
     
     

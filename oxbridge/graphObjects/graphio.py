@@ -27,6 +27,9 @@
 #
 # ============================================================================
 
+import csv
+import math
+import numpy as np
 import xml.etree.ElementTree as ET 
 from oxbridge.graphObjects.graphbase import oxbridgeNode, oxbridgeEdge, oxbridgeGraph
 
@@ -517,6 +520,67 @@ class oxbridgePrYonGraphML(oxbridgeGraphReaderBase, oxbridgeGraphWriterBase):
                 akey.text = str(nval)
 
 
+    #write the graph Laplacian to a given file path
+    #   The entries of the graph Laplacian will be of the form nij / (lij^k)
+    #   where k is specified by the `lengthpower' optional argument
+    def writeGraphLaplacianCSV(self, csvpath="./", lengthpower=0):
+        if lengthpower < 0:
+            print(f"argument lengthpower must be an integer value that is greater or equal to zero")
+        
+        lengthpower = int(lengthpower)
+        
+        if csvpath[-1] != '/':
+            csvpath = csvpath + "/"
+        
+        # were going to assign a set of global (matrix row) IDs in order to 
+        # provide a lookup table for which vertices correspond to which rows
+        # in the graph Laplacian matrix
+        vertexset = self.G.getNodeIDs()
+        vertexndx = [ [vertexset[i], i+1] for i in range(len(vertexset)) ]
+        
+        vertexhdr = ['master-graph-vertex-id', 'matrix-row-number']
+        with open(csvpath + 'graph-laplacian-vertex-index.csv', 'w', encoding='UTF8') as fa:
+            writer = csv.writer(fa)
+            writer.writerow(vertexhdr)
+            
+            for row in vertexndx:
+                writer.writerow(row)
+        
+        # now we build the graph Laplacian
+        vertexlookup = {vertexset[i]:i for i in range(len(vertexset))}
+        
+        N = len(vertexset)
+        glap = np.zeros((N, N))
+        edgeids = self.G.getEdgeIDs()
+        
+        for eid in edgeids:
+            
+            # get the source and target vertex IDs
+            va = eid[0]
+            vb = eid[1]
+                       
+            e = self.G.getEdge(eid)
+            nij, lij = e.getEdgeWeights()
+        
+            ndxa = vertexlookup[va]
+            ndxb = vertexlookup[vb]
+            
+            entry = float(nij) / (math.pow(float(lij), lengthpower))
+
+            glap[ndxa][ndxb] = entry
+            glap[ndxb][ndxa] = entry
+            
+        # now we set the diagonal entries
+        for i in range(N):
+            rowsum = np.sum(glap[i,:])
+            glap[i][i] = -1.0*rowsum
+
+        with open(csvpath + 'graph-laplacian.csv', 'w', encoding='UTF8') as fb:
+            writer = csv.writer(fb)
+                    
+            for i in range(N):
+                row = list(glap[i,:])
+                writer.writerow(row)
 
     def writeFooter(self):
         if self.__graphml == None or self.__graph == None:
